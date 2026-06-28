@@ -1,5 +1,7 @@
-import { STATUS, MACHINE_STATUS } from '../lib/domain.js'
+import { ArrowDown } from 'lucide-react'
+import { STATUS, MACHINE_STATUS, LEDGER_TYPE, serviceName } from '../lib/domain.js'
 import { useT } from '../i18n/i18n.jsx'
+import { rp, fmtDate } from '../lib/format.js'
 
 const DOT_COLORS = {
   ok: 'bg-ok',
@@ -149,6 +151,131 @@ export function EmptyState({ icon: Icon, title, children }) {
       <div className="font-display text-base text-ink-2">{title}</div>
       {children && <p className="max-w-xs font-sans text-sm text-sage">{children}</p>}
     </div>
+  )
+}
+
+// ── Ledger / bookkeeping primitives ──────────────────────────────────────────
+// A strict accounting journal: tinted header, left-aligned text, right-aligned
+// mono numbers in separate Debit (Masuk) / Kredit (Keluar) columns, a running
+// Saldo, zebra rows, and a double-rule total. Visually distinct from the plain
+// hairline data tables used elsewhere.
+export function LedgerTable({ rows, showBalance = true, footerLabel, footerValue }) {
+  const t = useT()
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-y border-line-2 bg-paper-2 text-left">
+            <th className="label-mono px-3 py-2 font-normal">{t('ledger.col_date')}</th>
+            <th className="label-mono px-3 py-2 font-normal">{t('ledger.col_desc')}</th>
+            <th className="label-mono px-3 py-2 text-right font-normal">{t('ledger.col_debit')}</th>
+            <th className="label-mono px-3 py-2 text-right font-normal">{t('ledger.col_credit')}</th>
+            {showBalance && (
+              <th className="label-mono px-3 py-2 text-right font-normal">{t('ledger.col_balance')}</th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((e, i) => {
+            const meta = LEDGER_TYPE[e.type] || {}
+            const debit = meta.column === 'debit'
+            const amt = Math.abs(e.amount)
+            // resolve description, translating the service-name var if present
+            const vars = { ...e.descVars }
+            if (vars.service) vars.service = serviceName(t, vars.service)
+            const desc = e.descKey ? t(e.descKey, vars) : e.desc || ''
+            return (
+              <tr
+                key={e.id}
+                className={`border-b border-line align-top ${i % 2 ? 'bg-paper-2/40' : ''} ${
+                  meta.memo ? 'text-ink-2' : 'text-ink'
+                }`}
+              >
+                <td className="whitespace-nowrap px-3 py-2 font-mono text-2xs text-sage">
+                  {fmtDate(e.date)}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="font-sans text-sm leading-tight">{desc}</div>
+                  <div className="font-mono text-2xs text-sage">
+                    {e.bookingId}
+                    {meta.memo ? ` · ${t('ledger.memo')}` : ''}
+                  </div>
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-sm tabular-nums text-pine">
+                  {debit ? `+${rp(amt)}` : ''}
+                </td>
+                <td
+                  className={`whitespace-nowrap px-3 py-2 text-right font-mono text-sm tabular-nums ${
+                    meta.memo ? 'text-sage' : 'text-clay'
+                  }`}
+                >
+                  {!debit ? `${meta.memo ? '(' : '−'}${rp(amt)}${meta.memo ? ')' : ''}` : ''}
+                </td>
+                {showBalance && (
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-sm font-medium tabular-nums text-ink">
+                    {e.cash ? rp(e.saldo) : '—'}
+                  </td>
+                )}
+              </tr>
+            )
+          })}
+        </tbody>
+        {footerLabel != null && (
+          <tfoot>
+            <tr className="border-t-2 border-ink/20 bg-paper-2">
+              <td className="px-3 py-2.5 font-sans text-sm font-semibold text-ink" colSpan={showBalance ? 4 : 3}>
+                {footerLabel}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-base font-medium tabular-nums text-ink">
+                {footerValue}
+              </td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
+  )
+}
+
+// Typographic harvest-split waterfall: gross → owner share / farmer share.
+export function SplitWaterfall({ gross, ownerShare, farmerShare, split, ownerLabel, farmerLabel }) {
+  const t = useT()
+  return (
+    <div className="border border-line">
+      <div className="border-b border-line bg-paper-2 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <span className="label-mono">{t('lo.wf_gross')}</span>
+          {split && (
+            <span className="font-mono text-2xs uppercase tracking-wide text-sage">{split.label}</span>
+          )}
+        </div>
+        <div className="mt-1 font-mono text-3xl font-medium tabular-nums text-ink">{rp(gross)}</div>
+      </div>
+      <div className="flex justify-center py-1.5">
+        <ArrowDown className="h-4 w-4 text-sage-2" />
+      </div>
+      <div className="grid grid-cols-2 divide-x divide-line border-t border-line">
+        <div className="px-4 py-3">
+          <div className="label-mono text-pine">{ownerLabel || t('lo.wf_owner')}</div>
+          <div className="mt-1 font-mono text-2xl font-medium tabular-nums text-pine">{rp(ownerShare)}</div>
+          {split && <div className="mt-0.5 font-mono text-2xs text-sage">{split.ownerPercent}%</div>}
+        </div>
+        <div className="px-4 py-3">
+          <div className="label-mono">{farmerLabel || t('lo.wf_farmer')}</div>
+          <div className="mt-1 font-mono text-2xl font-medium tabular-nums text-ink">{rp(farmerShare)}</div>
+          {split && <div className="mt-0.5 font-mono text-2xs text-sage">{split.farmerPercent}%</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Tiny split-ratio tag for plot tables
+export function SplitTag({ split }) {
+  return (
+    <span className="inline-flex items-center rounded-sm border border-line-2 px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.06em] text-ink-2">
+      {split.label}
+    </span>
   )
 }
 

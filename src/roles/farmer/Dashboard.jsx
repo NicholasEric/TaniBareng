@@ -122,7 +122,7 @@ export default function FarmerDashboard() {
                 <div className="label-mono mt-1">{t('fd.pay_total_sub')}</div>
               </div>
               <p className="font-sans text-sm text-ink-2">{t('fd.pay_desc')}</p>
-              <Button variant="outline" className="w-full" onClick={() => go('payments')}>
+              <Button variant="outline" className="w-full" onClick={() => go('bukutani')}>
                 {t('fd.pay_cta')}
               </Button>
             </div>

@@ -21,18 +21,49 @@ store, persisted to `localStorage`. There is no backend.
 
 ---
 
-## The three roles
+## The four roles
 
-Switch roles anytime from the **top-bar role switcher** (desktop) or the same control on
-mobile. Each role gets its own left nav (desktop) / bottom tab bar (mobile).
+Switch roles anytime from the **top-bar role switcher**. On desktop (`md+`) it's a segmented
+control; below `md` it collapses into a hairline dropdown so all four roles stay reachable on
+a phone. Each role gets its own left nav (desktop) / bottom tab bar (mobile).
 
 | Role | Screens |
 | --- | --- |
-| **Petani** (Kelompok Tani head) | Beranda · **Pesan Layanan** (5-step booking) · Pesanan Saya · Pembayaran |
+| **Petani** (Kelompok Tani head / penggarap) | Beranda · **Pesan Layanan** (5-step booking) · Pesanan Saya · **Buku Tani** (farmer's ledger) |
 | **Operator** | Tugas Hari Ini · Jadwal (week view) · Upah |
 | **Admin Koperasi** | Operasi (dashboard) · **Penugasan** (dispatch board) · Armada · Keuangan |
+| **Pemilik Lahan** (Landowner) | Portofolio · Lahan & Penggarap · **Bagi Hasil** (harvest split ledger) |
 
-The signed-in operator for the demo is **Tukijan (OP-03)**.
+The signed-in operator for the demo is **Tukijan (OP-03)**; the signed-in landowner is
+**H. Marwoto (LO-01)**.
+
+## Bookkeeping & the tenant-farming (bagi hasil) model
+
+Java's tenant reality: a **landowner** (*pemilik lahan*) owns the sawah; a **penggarap**
+(tenant) cultivates it; at harvest they split the yield by a per-plot ratio (*Maro* 50/50,
+*Mertelu* 1:2, or custom). The penggarap earns their share but must repay their TaniBareng
+machinery credit out of it. The app models this exact waterfall and a unified ledger.
+
+**The cascade (one source of truth, `completionEffects()` in `data/seed.js`):** when an
+Operator completes a **harvest** job, the store generates a `HarvestRecord` (gross value =
+crop value/ha × actual ha), splits it by the plot's ratio, and posts `HARVEST_INCOME` ledger
+entries to **both** the farmer (their share) and the landowner (their share). If the booking
+was pay-at-harvest, it also posts a `MACHINERY_DEBT_INCURRED` entry against the farmer. The
+seed replays this same function over already-settled bookings, so seed and runtime math can
+never drift — and they reconcile to the rupiah (split shares always sum back to gross).
+
+- **Buku Tani** (Farmer's Book): a printed-ledger-style journal — **Net Position** = harvest
+  income − machinery debt (invariant to settling), a running cash **Saldo**, and a debt
+  breakdown where **Bayar** posts a `MACHINERY_DEBT_PAID` cash-out entry, lowers cash, and
+  clears the co-op's receivable.
+- **Bagi Hasil** (Landowner's ledger): a typographic split **waterfall** (gross → owner share
+  / farmer share) per harvest, plus the owner's income journal and a per-plot view showing
+  the penggarap, ratio, and whether their machinery debt is cleared.
+
+The ledger tables (`LedgerTable` in `components/ui.jsx`) are visually distinct from the plain
+data tables: tinted header, left-aligned text / right-aligned mono numbers, separate **Masuk
+(In)** / **Keluar (Out)** columns (green income, clay payments, parenthesized non-cash memos),
+a running balance, zebra rows, and a double-rule total.
 
 ### Language toggle (ID · EN · 日本語)
 

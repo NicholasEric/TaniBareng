@@ -3,11 +3,12 @@ import {
   Sprout,
   Tractor,
   Building2,
+  Landmark,
   RotateCcw,
   Home,
   CalendarPlus,
   ClipboardList,
-  Wallet,
+  NotebookText,
   ListChecks,
   CalendarDays,
   Coins,
@@ -15,6 +16,9 @@ import {
   Send,
   Cog,
   Banknote,
+  MapPinned,
+  Scroll,
+  ChevronDown,
 } from 'lucide-react'
 import { useStore } from './store/store.jsx'
 import { useT, useLang } from './i18n/i18n.jsx'
@@ -23,7 +27,7 @@ import { VILLAGE } from './data/seed.js'
 import FarmerDashboard from './roles/farmer/Dashboard.jsx'
 import BookFlow from './roles/farmer/BookFlow.jsx'
 import MyBookings from './roles/farmer/MyBookings.jsx'
-import FarmerPayments from './roles/farmer/Payments.jsx'
+import BukuTani from './roles/farmer/BukuTani.jsx'
 
 import OperatorToday from './roles/operator/Today.jsx'
 import OperatorSchedule from './roles/operator/Schedule.jsx'
@@ -33,6 +37,10 @@ import AdminDashboard from './roles/admin/Dashboard.jsx'
 import Dispatch from './roles/admin/Dispatch.jsx'
 import Fleet from './roles/admin/Fleet.jsx'
 import Finance from './roles/admin/Finance.jsx'
+
+import LandownerDashboard from './roles/landowner/Dashboard.jsx'
+import LandownerPlots from './roles/landowner/Plots.jsx'
+import LandownerLedger from './roles/landowner/Ledger.jsx'
 
 // ── lightweight in-app router ────────────────────────────────────────────────
 const NavCtx = createContext(null)
@@ -45,6 +53,7 @@ const ROLES = {
   farmer: { nameKey: 'role.farmer', subKey: 'role.farmer_sub', icon: Sprout },
   operator: { nameKey: 'role.operator', subKey: 'role.operator_sub', icon: Tractor },
   admin: { nameKey: 'role.admin', subKey: 'role.admin_sub', icon: Building2 },
+  landowner: { nameKey: 'role.landowner', subKey: 'role.landowner_sub', icon: Landmark },
 }
 
 const NAV = {
@@ -52,7 +61,7 @@ const NAV = {
     { key: 'dashboard', labelKey: 'nav.home', icon: Home },
     { key: 'book', labelKey: 'nav.book', icon: CalendarPlus },
     { key: 'bookings', labelKey: 'nav.bookings', icon: ClipboardList },
-    { key: 'payments', labelKey: 'nav.payments', icon: Wallet },
+    { key: 'bukutani', labelKey: 'nav.bukutani', icon: NotebookText },
   ],
   operator: [
     { key: 'today', labelKey: 'nav.today', icon: ListChecks },
@@ -65,22 +74,33 @@ const NAV = {
     { key: 'fleet', labelKey: 'nav.fleet', icon: Cog },
     { key: 'finance', labelKey: 'nav.finance', icon: Banknote },
   ],
+  landowner: [
+    { key: 'dashboard', labelKey: 'nav.portfolio', icon: LayoutDashboard },
+    { key: 'plots', labelKey: 'nav.plots', icon: MapPinned },
+    { key: 'ledger', labelKey: 'nav.lo_ledger', icon: Scroll },
+  ],
 }
 
-// The signed-in operator for the demo (their queue is shared state)
+// The signed-in demo identities (their data is shared state)
 export const ME_OPERATOR = 'OP-03'
+export const ME_LANDOWNER = 'LO-01'
 
 function screenFor(role, screen, params, nav) {
   if (role === 'farmer') {
     if (screen === 'book') return <BookFlow />
     if (screen === 'bookings') return <MyBookings focusId={params?.id} />
-    if (screen === 'payments') return <FarmerPayments />
+    if (screen === 'bukutani') return <BukuTani />
     return <FarmerDashboard />
   }
   if (role === 'operator') {
     if (screen === 'schedule') return <OperatorSchedule />
     if (screen === 'earnings') return <OperatorEarnings />
     return <OperatorToday focusId={params?.id} />
+  }
+  if (role === 'landowner') {
+    if (screen === 'plots') return <LandownerPlots />
+    if (screen === 'ledger') return <LandownerLedger />
+    return <LandownerDashboard />
   }
   // admin
   if (screen === 'dispatch') return <Dispatch focusId={params?.id} />
@@ -242,31 +262,93 @@ function BrandMark({ small }) {
 
 function RoleSwitcher({ role, onSwitch }) {
   const t = useT()
+  const [open, setOpen] = useState(false)
+  const CurrentIcon = ROLES[role].icon
   return (
-    <div
-      className="flex items-center gap-0.5 rounded-sm border border-line bg-paper-2 p-0.5"
-      role="tablist"
-      aria-label={t('app.aria_role')}
-    >
-      {Object.entries(ROLES).map(([key, r]) => {
-        const Icon = r.icon
-        const active = role === key
-        return (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={active}
-            onClick={() => onSwitch(key)}
-            className={`inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm transition-colors ${
-              active ? 'bg-pine text-paper' : 'text-ink-2 hover:bg-paper-3'
-            }`}
-          >
-            <Icon className="h-4 w-4" strokeWidth={1.75} />
-            <span className="hidden font-medium sm:inline">{t(r.nameKey)}</span>
-          </button>
-        )
-      })}
-    </div>
+    <>
+      {/* md+ : segmented control — all 4 roles fit with labels */}
+      <div
+        className="hidden items-center gap-0.5 rounded-sm border border-line bg-paper-2 p-0.5 md:flex"
+        role="tablist"
+        aria-label={t('app.aria_role')}
+      >
+        {Object.entries(ROLES).map(([key, r]) => {
+          const Icon = r.icon
+          const active = role === key
+          return (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSwitch(key)}
+              className={`inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm transition-colors ${
+                active ? 'bg-pine text-paper' : 'text-ink-2 hover:bg-paper-3'
+              }`}
+            >
+              <Icon className="h-4 w-4" strokeWidth={1.75} />
+              <span className="hidden font-medium lg:inline">{t(r.nameKey)}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* below md : compact dropdown — keeps 4 roles off the cramped mobile bar */}
+      <div className="relative md:hidden">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={t('app.aria_role')}
+          className="inline-flex items-center gap-1.5 rounded-sm border border-line bg-paper-2 px-2.5 py-1.5 text-sm text-ink"
+        >
+          <CurrentIcon className="h-4 w-4 text-pine" strokeWidth={1.75} />
+          <span className="font-medium">{t(ROLES[role].nameKey)}</span>
+          <ChevronDown className={`h-3.5 w-3.5 text-sage transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <>
+            <button
+              aria-hidden
+              tabIndex={-1}
+              onClick={() => setOpen(false)}
+              className="fixed inset-0 z-40 cursor-default"
+            />
+            <ul
+              role="menu"
+              className="absolute left-0 z-50 mt-1 w-56 overflow-hidden rounded-sm border border-line-2 bg-paper"
+            >
+              {Object.entries(ROLES).map(([key, r]) => {
+                const Icon = r.icon
+                const active = role === key
+                return (
+                  <li key={key}>
+                    <button
+                      role="menuitemradio"
+                      aria-checked={active}
+                      onClick={() => {
+                        onSwitch(key)
+                        setOpen(false)
+                      }}
+                      className={`flex w-full items-center gap-2.5 border-b border-line px-3 py-2.5 text-left last:border-b-0 ${
+                        active ? 'bg-pine text-paper' : 'text-ink hover:bg-paper-2'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                      <div className="leading-tight">
+                        <div className="text-sm font-medium">{t(r.nameKey)}</div>
+                        <div className={`font-mono text-2xs ${active ? 'text-sage-2' : 'text-sage'}`}>
+                          {t(r.subKey)}
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </div>
+    </>
   )
 }
 

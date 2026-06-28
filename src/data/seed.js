@@ -60,14 +60,48 @@ export const MOBILIZATION_FEE = 75_000 // flat per booking, itemized separately
 export const OPERATOR_WAGE_RATE = 0.18 // operator earns 18% of service subtotal
 export const FUND_SHARE = 0.45 // of net margin, 45% to community fund / 55% reinvest
 
-// ── Plots (petak sawah milik anggota) ────────────────────────────────────────
+// ── Harvest economics (bagi hasil / tenant split) ────────────────────────────
+// Gross sellable harvest value per hectare, by crop. Tuned so a maro (50/50)
+// padi plot yields a believable farmer share in the low tens of millions.
+export const HARVEST_VALUE_PER_HA = { padi: 9_500_000, jagung: 7_000_000 }
+
+export function harvestValuePerHa(crop) {
+  if (crop && crop.toLowerCase().startsWith('jagung')) return HARVEST_VALUE_PER_HA.jagung
+  return HARVEST_VALUE_PER_HA.padi
+}
+
+// Harvest-split presets. farmerPercent + ownerPercent = 100. The Javanese terms
+// (Maro, Mertelu) are kept as proper nouns; the ratio drives the math.
+export const SPLIT_PRESETS = {
+  maro: { key: 'maro', label: 'Maro 50/50', farmerPercent: 50, ownerPercent: 50 },
+  mertelu: { key: 'mertelu', label: 'Mertelu 1:2', farmerPercent: 33, ownerPercent: 67 },
+  custom_4060: { key: 'custom', label: 'Custom 40/60', farmerPercent: 40, ownerPercent: 60 },
+}
+
+// Ledger entry types — the unified financial transaction log.
+export const LEDGER = {
+  HARVEST_INCOME: 'HARVEST_INCOME',
+  MACHINERY_DEBT_INCURRED: 'MACHINERY_DEBT_INCURRED',
+  MACHINERY_DEBT_PAID: 'MACHINERY_DEBT_PAID',
+}
+
+// ── Landowners (Pemilik Lahan) ───────────────────────────────────────────────
+export const SEED_LANDOWNERS = [
+  { id: 'LO-01', name: 'H. Marwoto', phone: '0812-2670-1140', desa: 'Sumberagung' },
+  { id: 'LO-02', name: 'Hj. Sastro', phone: '0813-9981-3320', desa: 'Sumberagung' },
+  { id: 'LO-03', name: 'P. Wignyo', phone: '0857-1123-8890', desa: 'Bayan' },
+]
+
+// ── Plots ────────────────────────────────────────────────────────────────────
+// Each plot is OWNED by a landowner (landownerId) and CULTIVATED by a penggarap
+// (tenant; the `owner`/`penggarap` member name). harvestSplit configures bagi hasil.
 export const SEED_PLOTS = [
-  { id: 'PL-01', name: 'Blok Kali Lor', owner: 'P. Sukardi', ha: 2.4, crop: 'Padi Inpari-32', blok: 'Kali Lor' },
-  { id: 'PL-02', name: 'Sawah Tengah', owner: 'Ibu Wagini', ha: 1.8, crop: 'Padi Ciherang', blok: 'Tengah' },
-  { id: 'PL-03', name: 'Blok Sumber', owner: 'P. Darmaji', ha: 3.1, crop: 'Padi Inpari-32', blok: 'Sumber' },
-  { id: 'PL-04', name: 'Tegal Wetan', owner: 'P. Mulyono', ha: 1.2, crop: 'Jagung Hibrida', blok: 'Wetan' },
-  { id: 'PL-05', name: 'Blok Krajan', owner: 'Ibu Tasmiah', ha: 2.7, crop: 'Padi Ciherang', blok: 'Krajan' },
-  { id: 'PL-06', name: 'Sawah Kidul', owner: 'P. Hadi S.', ha: 0.9, crop: 'Padi Inpari-32', blok: 'Kidul' },
+  { id: 'PL-01', name: 'Blok Kali Lor', owner: 'P. Sukardi', penggarap: 'P. Sukardi', landownerId: 'LO-01', harvestSplit: SPLIT_PRESETS.mertelu, ha: 2.4, crop: 'Padi Inpari-32', blok: 'Kali Lor' },
+  { id: 'PL-02', name: 'Sawah Tengah', owner: 'Ibu Wagini', penggarap: 'Ibu Wagini', landownerId: 'LO-02', harvestSplit: SPLIT_PRESETS.maro, ha: 1.8, crop: 'Padi Ciherang', blok: 'Tengah' },
+  { id: 'PL-03', name: 'Blok Sumber', owner: 'P. Darmaji', penggarap: 'P. Darmaji', landownerId: 'LO-02', harvestSplit: SPLIT_PRESETS.maro, ha: 3.1, crop: 'Padi Inpari-32', blok: 'Sumber' },
+  { id: 'PL-04', name: 'Tegal Wetan', owner: 'P. Mulyono', penggarap: 'P. Mulyono', landownerId: 'LO-03', harvestSplit: SPLIT_PRESETS.custom_4060, ha: 1.2, crop: 'Jagung Hibrida', blok: 'Wetan' },
+  { id: 'PL-05', name: 'Blok Krajan', owner: 'Ibu Tasmiah', penggarap: 'Ibu Tasmiah', landownerId: 'LO-01', harvestSplit: SPLIT_PRESETS.maro, ha: 2.7, crop: 'Padi Ciherang', blok: 'Krajan' },
+  { id: 'PL-06', name: 'Sawah Kidul', owner: 'P. Hadi S.', penggarap: 'P. Hadi S.', landownerId: 'LO-03', harvestSplit: SPLIT_PRESETS.mertelu, ha: 0.9, crop: 'Padi Inpari-32', blok: 'Kidul' },
 ]
 
 // ── Fleet (covers the six required machine types + a spare tractor) ───────────
@@ -172,6 +206,89 @@ function buildBooking(b) {
 
 export const SEED_BOOKINGS = RAW_BOOKINGS.map(buildBooking)
 
+// ── Harvest split + ledger derivation ────────────────────────────────────────
+// Split a gross harvest value between farmer (penggarap) and landowner (pemilik).
+export function splitHarvest(grossValue, split) {
+  const farmerShare = Math.round((grossValue * split.farmerPercent) / 100)
+  const ownerShare = grossValue - farmerShare // remainder, so the two always sum to gross
+  return { farmerShare, ownerShare }
+}
+
+// Build the HarvestRecord generated when a "panen" booking completes.
+export function buildHarvestRecord(booking, plot) {
+  const usedHa = booking.log?.actualHa ?? booking.ha
+  const valuePerHa = harvestValuePerHa(plot.crop)
+  const grossValue = Math.round(valuePerHa * usedHa)
+  const { farmerShare, ownerShare } = splitHarvest(grossValue, plot.harvestSplit)
+  return {
+    id: `HR-${booking.id}`,
+    bookingId: booking.id,
+    plotId: plot.id,
+    landownerId: plot.landownerId,
+    date: booking.log?.completedAt ?? booking.date,
+    usedHa,
+    valuePerHa,
+    grossValue,
+    split: plot.harvestSplit,
+    farmerShare,
+    ownerShare,
+  }
+}
+
+// The financial cascade for completing ONE booking. Returns the ledger entries
+// (farmer + landowner) and any HarvestRecord. Used identically by the seed and
+// the live COMPLETE_JOB reducer, so seed and runtime math can never drift.
+//   • panen        → HARVEST_INCOME for farmer (share) AND landowner (share)
+//   • pay==harvest → MACHINERY_DEBT_INCURRED for farmer (the credit, a memo that
+//                    reduces net position but is not a cash movement)
+export function completionEffects(booking, plot, startSeq) {
+  let seq = startSeq
+  const entries = []
+  let harvestRecord = null
+  const date = booking.log?.completedAt ?? booking.date
+  const mk = (e) => {
+    entries.push({ id: `LG-${seq}`, order: seq, date, bookingId: booking.id, plotId: plot.id, ...e })
+    seq += 1
+  }
+
+  if (booking.service === 'panen') {
+    harvestRecord = buildHarvestRecord(booking, plot)
+    mk({
+      type: LEDGER.HARVEST_INCOME,
+      role: 'farmer',
+      party: plot.penggarap,
+      amount: harvestRecord.farmerShare, // + cash in
+      cash: true,
+      descKey: 'ledger.desc_harvest',
+      descVars: { plot: plot.name, split: plot.harvestSplit.label },
+    })
+    mk({
+      type: LEDGER.HARVEST_INCOME,
+      role: 'landowner',
+      party: plot.landownerId,
+      amount: harvestRecord.ownerShare,
+      cash: true,
+      descKey: 'ledger.desc_harvest',
+      descVars: { plot: plot.name, split: plot.harvestSplit.label },
+    })
+  }
+
+  if (booking.pay === 'harvest') {
+    mk({
+      type: LEDGER.MACHINERY_DEBT_INCURRED,
+      role: 'farmer',
+      party: plot.penggarap,
+      amount: -booking.price.total, // liability against net position; cash:false
+      cash: false,
+      service: booking.service,
+      descKey: 'ledger.desc_debt',
+      descVars: { service: booking.service },
+    })
+  }
+
+  return { entries, harvestRecord, nextSeq: seq }
+}
+
 // Starting community-fund ledger (built up over prior seasons). Live finance
 // selectors add this season's realized margin on top.
 export const SEED_FUND = {
@@ -180,12 +297,35 @@ export const SEED_FUND = {
 }
 
 export function freshState() {
+  const plots = SEED_PLOTS.map((p) => ({ ...p }))
+  const plotMap = Object.fromEntries(plots.map((p) => [p.id, p]))
+  const bookings = SEED_BOOKINGS.map((b) => ({ ...b, price: { ...b.price }, log: { ...b.log } }))
+
+  // Replay the completion cascade over already-completed/invoiced bookings so the
+  // demo opens with a populated, self-consistent ledger.
+  let ledgerSeq = 5001
+  const ledger = []
+  const harvestRecords = []
+  const settled = bookings
+    .filter((b) => ['completed', 'invoiced'].includes(b.status))
+    .sort((a, b) => (a.log.completedAt || a.date).localeCompare(b.log.completedAt || b.date))
+  for (const b of settled) {
+    const { entries, harvestRecord, nextSeq } = completionEffects(b, plotMap[b.plotId], ledgerSeq)
+    ledger.push(...entries)
+    if (harvestRecord) harvestRecords.push(harvestRecord)
+    ledgerSeq = nextSeq
+  }
+
   return {
-    plots: SEED_PLOTS.map((p) => ({ ...p })),
+    plots,
     machines: SEED_MACHINES.map((m) => ({ ...m })),
     operators: SEED_OPERATORS.map((o) => ({ ...o })),
-    bookings: SEED_BOOKINGS.map((b) => ({ ...b, price: { ...b.price }, log: { ...b.log } })),
+    landowners: SEED_LANDOWNERS.map((l) => ({ ...l })),
+    bookings,
+    harvestRecords,
+    ledger,
     fund: { ...SEED_FUND },
     seq: 1013, // next booking number
+    ledgerSeq, // next ledger entry number
   }
 }

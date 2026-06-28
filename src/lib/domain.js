@@ -21,6 +21,14 @@ export const MACHINE_STATUS = {
   maintenance: { dot: 'idle' },
 }
 
+// Ledger entry-type metadata. `column` decides Debit (Masuk) vs Kredit (Keluar);
+// `memo` marks a non-cash liability line (rendered muted, no balance movement).
+export const LEDGER_TYPE = {
+  HARVEST_INCOME: { column: 'debit', tone: 'pine', labelKey: 'ledger.type_income' },
+  MACHINERY_DEBT_INCURRED: { column: 'credit', tone: 'sage', memo: true, labelKey: 'ledger.type_debt' },
+  MACHINERY_DEBT_PAID: { column: 'credit', tone: 'clay', labelKey: 'ledger.type_paid' },
+}
+
 // Label helpers — pass the active t() from useT(). Kept here so call sites read
 // `statusLabel(t, key)` rather than scattering raw translation keys.
 export const statusLabel = (t, key) => t(`status.${key}`)

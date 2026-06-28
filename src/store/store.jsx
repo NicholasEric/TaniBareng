@@ -1,10 +1,11 @@
 import { createContext, useContext, useMemo, useReducer, useEffect } from 'react'
-import { freshState, priceFor, SERVICES, FUND_SHARE } from '../data/seed.js'
+import { freshState, priceFor, completionEffects, SERVICES, FUND_SHARE, LEDGER } from '../data/seed.js'
 import { STATUS_ORDER, serviceOf } from '../lib/domain.js'
 import { sameWeek } from '../lib/format.js'
 
 const StoreCtx = createContext(null)
-const LS_KEY = 'tanibareng.v1'
+// v2: shape gained landowners, harvestRecords, ledger — start fresh on upgrade.
+const LS_KEY = 'tanibareng.v2'
 
 function load() {
   try {
@@ -80,23 +81,28 @@ function reducer(state, action) {
     }
 
     case 'COMPLETE_JOB': {
-      // Operator logs actuals → completed. Frees the machine back to available.
+      // Operator logs actuals → completed. Frees the machine back to available,
+      // then cascades the financial effects: harvest split income (farmer +
+      // landowner) and, for pay-at-harvest, the machinery debt incurred.
       const { id, actualHa, fuelLiters, notes, at } = action.payload
       const booking = state.bookings.find((b) => b.id === id)
+      if (!booking || booking.status === 'completed' || booking.status === 'invoiced') return state
+      const completed = {
+        ...booking,
+        status: 'completed',
+        log: { ...booking.log, actualHa, fuelLiters, notes, completedAt: at },
+      }
+      const plot = state.plots.find((p) => p.id === booking.plotId)
+      const { entries, harvestRecord, nextSeq } = completionEffects(completed, plot, state.ledgerSeq)
       return {
         ...state,
-        bookings: state.bookings.map((b) =>
-          b.id === id
-            ? {
-                ...b,
-                status: 'completed',
-                log: { ...b.log, actualHa, fuelLiters, notes, completedAt: at },
-              }
-            : b
-        ),
+        bookings: state.bookings.map((b) => (b.id === id ? completed : b)),
         machines: state.machines.map((m) =>
-          m.id === booking?.machine && m.status === 'in_field' ? { ...m, status: 'available' } : m
+          m.id === booking.machine && m.status === 'in_field' ? { ...m, status: 'available' } : m
         ),
+        ledger: [...state.ledger, ...entries],
+        harvestRecords: harvestRecord ? [...state.harvestRecords, harvestRecord] : state.harvestRecords,
+        ledgerSeq: nextSeq,
       }
     }
 
@@ -111,11 +117,32 @@ function reducer(state, action) {
     }
 
     case 'PAY': {
-      // Farmer settles a pay-at-harvest balance.
-      const { id } = action.payload
+      // Farmer settles a pay-at-harvest machinery debt → cash out of the Buku
+      // Tani (a MACHINERY_DEBT_PAID ledger entry) and clears admin receivables.
+      const { id, at } = action.payload
+      const booking = state.bookings.find((b) => b.id === id)
+      if (!booking || booking.paid) return state
+      const plot = state.plots.find((p) => p.id === booking.plotId)
+      const entry = {
+        id: `LG-${state.ledgerSeq}`,
+        order: state.ledgerSeq,
+        date: at || booking.log.completedAt || booking.date,
+        type: LEDGER.MACHINERY_DEBT_PAID,
+        role: 'farmer',
+        party: plot.penggarap,
+        bookingId: booking.id,
+        plotId: booking.plotId,
+        amount: -booking.price.total, // cash out
+        cash: true,
+        service: booking.service,
+        descKey: 'ledger.desc_debt_paid',
+        descVars: { service: booking.service },
+      }
       return {
         ...state,
         bookings: state.bookings.map((b) => (b.id === id ? { ...b, paid: true } : b)),
+        ledger: [...state.ledger, entry],
+        ledgerSeq: state.ledgerSeq + 1,
       }
     }
 
@@ -171,7 +198,7 @@ export function useMachine(id) {
 export function useDerived() {
   const { state } = useStore()
   return useMemo(() => {
-    const { bookings, machines, operators, fund, plots } = state
+    const { bookings, machines, operators, fund, plots, ledger } = state
 
     const byId = (arr) => Object.fromEntries(arr.map((x) => [x.id, x]))
     const plotMap = byId(plots)
@@ -236,6 +263,16 @@ export function useDerived() {
     const fundBalance = fund.openingBalance + fundContribution
     const reinvestBalance = fund.reinvestmentBalance + reinvestContribution
 
+    // Machinery debt actually incurred (service rendered) vs settled, from the
+    // ledger. debtOutstanding = collectible-now receivables for the co-op.
+    const debtIncurred = ledger
+      .filter((e) => e.type === 'MACHINERY_DEBT_INCURRED')
+      .reduce((s, e) => s - e.amount, 0)
+    const debtPaid = ledger
+      .filter((e) => e.type === 'MACHINERY_DEBT_PAID')
+      .reduce((s, e) => s - e.amount, 0)
+    const debtOutstanding = debtIncurred - debtPaid
+
     return {
       enriched,
       counts,
@@ -251,9 +288,110 @@ export function useDerived() {
         reinvestContribution,
         fundBalance,
         reinvestBalance,
+        debtIncurred,
+        debtPaid,
+        debtOutstanding,
       },
     }
   }, [state])
+}
+
+// Order ledger entries chronologically, ties broken by insertion order.
+const byDateOrder = (a, b) => a.date.localeCompare(b.date) || a.order - b.order
+
+// ── Farmer's Buku Tani — running cash ledger + net position ───────────────────
+export function useFarmerBook() {
+  const { state } = useStore()
+  return useMemo(() => {
+    const { ledger, bookings, plots } = state
+    const plotMap = Object.fromEntries(plots.map((p) => [p.id, p]))
+
+    const entries = ledger.filter((e) => e.role === 'farmer').slice().sort(byDateOrder)
+    let saldo = 0
+    const rows = entries.map((e) => {
+      if (e.cash) saldo += e.amount // only cash events move the running balance
+      return { ...e, saldo, plot: plotMap[e.plotId] }
+    })
+
+    const income = entries
+      .filter((e) => e.type === 'HARVEST_INCOME')
+      .reduce((s, e) => s + e.amount, 0)
+    const incurred = entries
+      .filter((e) => e.type === 'MACHINERY_DEBT_INCURRED')
+      .reduce((s, e) => s - e.amount, 0)
+    const paid = entries
+      .filter((e) => e.type === 'MACHINERY_DEBT_PAID')
+      .reduce((s, e) => s - e.amount, 0)
+
+    const outstanding = incurred - paid // debt for services rendered, still owed
+    const cash = income - paid // cash actually on hand (== final running saldo)
+    const net = income - incurred // net position: invariant to settling debts
+
+    // Outstanding debts the farmer can pay now: pay-at-harvest, service rendered.
+    const debts = bookings
+      .filter(
+        (b) => b.pay === 'harvest' && !b.paid && ['completed', 'invoiced'].includes(b.status)
+      )
+      .map((b) => ({ ...b, plot: plotMap[b.plotId], service_: serviceOf(b.service) }))
+      .sort((a, b) => (a.log.completedAt || a.date).localeCompare(b.log.completedAt || b.date))
+
+    return { rows, income, incurred, paid, outstanding, cash, net, debts }
+  }, [state])
+}
+
+// ── Landowner's book — portfolio, plot rows, harvest split ledger ─────────────
+export function useLandownerBook(landownerId) {
+  const { state } = useStore()
+  return useMemo(() => {
+    const { ledger, harvestRecords, plots, bookings, landowners } = state
+    const plotMap = Object.fromEntries(plots.map((p) => [p.id, p]))
+    const landowner = landowners.find((l) => l.id === landownerId)
+    const myPlots = plots.filter((p) => p.landownerId === landownerId)
+    const myPlotIds = new Set(myPlots.map((p) => p.id))
+
+    const entries = ledger
+      .filter((e) => e.role === 'landowner' && e.party === landownerId)
+      .slice()
+      .sort(byDateOrder)
+    let saldo = 0
+    const rows = entries.map((e) => {
+      saldo += e.amount
+      return { ...e, saldo, plot: plotMap[e.plotId] }
+    })
+
+    const records = harvestRecords
+      .filter((h) => myPlotIds.has(h.plotId))
+      .map((h) => ({ ...h, plot: plotMap[h.plotId] }))
+      .sort(byDateOrder)
+
+    const totalIncome = entries.reduce((s, e) => s + e.amount, 0)
+    const totalHa = myPlots.reduce((s, p) => s + p.ha, 0)
+
+    // Per-plot rows: penggarap, split, harvest + farmer-debt health.
+    const plotRows = myPlots.map((p) => {
+      const plotBookings = bookings.filter((b) => b.plotId === p.id)
+      const harvested = plotBookings.some(
+        (b) => b.service === 'panen' && ['completed', 'invoiced'].includes(b.status)
+      )
+      const debtOutstanding = plotBookings
+        .filter((b) => b.pay === 'harvest' && !b.paid && ['completed', 'invoiced'].includes(b.status))
+        .reduce((s, b) => s + b.price.total, 0)
+      const activeHarvest = plotBookings.find(
+        (b) => b.service === 'panen' && !['completed', 'invoiced'].includes(b.status)
+      )
+      const record = records.find((h) => h.plotId === p.id)
+      return {
+        ...p,
+        harvested,
+        activeHarvest: activeHarvest || null,
+        debtOutstanding,
+        debtCleared: debtOutstanding === 0,
+        record: record || null,
+      }
+    })
+
+    return { landowner, myPlots, rows, records, totalIncome, totalHa, plotCount: myPlots.length, plotRows }
+  }, [state, landownerId])
 }
 
 // Bookings assigned to one operator

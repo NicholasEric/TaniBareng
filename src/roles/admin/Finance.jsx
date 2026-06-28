@@ -1,4 +1,4 @@
-import { Banknote, PiggyBank, RefreshCw, Receipt } from 'lucide-react'
+import { Banknote, PiggyBank, RefreshCw, Receipt, Tractor } from 'lucide-react'
 import { useDerived } from '../../store/store.jsx'
 import { useT } from '../../i18n/i18n.jsx'
 import { Panel, Metric, EmptyState } from '../../components/ui.jsx'
@@ -79,6 +79,13 @@ export default function Finance() {
               label={t('fn.bal_recv')}
               value={rp(finance.receivables)}
               sub={t('fn.bal_recv_sub', { n: receivables.length })}
+              tone="clay"
+            />
+            <Balance
+              icon={Tractor}
+              label={t('bt.debt_label')}
+              value={rp(finance.debtOutstanding)}
+              sub={t('bt.debt_sub')}
               tone="clay"
             />
           </div>
