@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    /* Faint paper grain — restrained, no gradient blobs */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  }
+
+  /* Tabular figures everywhere mono is used */
+  .font-mono {
+    font-feature-settings: 'tnum' 1, 'zero' 1;
+  }
+
+  *:focus-visible {
+    outline: 2px solid #bd5e2e;
+    outline-offset: 1px;
+  }
+
+  /* Thin scrollbars, agrarian-console feel */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c4bba2;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Mono uppercase micro-label — the repeated motif */
+  .label-mono {
+    @apply font-mono text-2xs uppercase tracking-[0.12em] text-sage;
+  }
+
+  .hairline {
+    @apply border-line;
+  }
+}
